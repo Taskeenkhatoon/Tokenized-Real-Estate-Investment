@@ -1,9 +1,6 @@
 # Tokenized Real Estate Investment
 
-## Project Title
-Tokenized Real Estate Investment
-
-## Project Description
+# Project Description
 Tokenized Real Estate Investment is a blockchain-based platform that transforms traditional real estate investments into digital tokens. By leveraging smart contracts on the blockchain, the project enables fractional ownership of real estate properties, making property investment more accessible, liquid, and transparent. Property owners can tokenize their assets, while investors can purchase portions of these properties through tokens, receive rental income distributions, and trade their ownership stakes with ease.
 
 ## Project Vision
