@@ -1,129 +1,189 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract Project is ERC20, Ownable {
-    struct Property {
-        string propertyId;
-        string location;
-        uint256 propertyValue;
-        uint256 rentalIncome;
-        uint256 lastDistributionTimestamp;
-        bool isActive;
+/**
+ * @title DynamicNFTMarketplace
+ * @dev A marketplace for dynamic NFTs that can evolve over time
+ */
+contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
+    using Counters for Counters.Counter;
+    Counters.Counter private _tokenIds;
+    
+    mapping(uint256 => uint256) public tokenPrices;
+    mapping(uint256 => uint256) public tokenEvolutionStages;
+    mapping(uint256 => mapping(uint256 => string)) public evolutionStageURIs;
+
+    event NFTListed(uint256 indexed tokenId, address indexed seller, uint256 price);
+    event NFTDelisted(uint256 indexed tokenId, address indexed owner);
+    event NFTPurchased(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price);
+    event NFTEvolved(uint256 indexed tokenId, uint256 newStage);
+    event NFTRelisted(uint256 indexed tokenId, uint256 price);
+    event NFTBurned(uint256 indexed tokenId, address indexed owner);
+
+    constructor() ERC721("DynamicNFT", "DNFT") {}
+
+    function createAndListNFT(string memory initialURI, uint256 price) external returns (uint256) {
+        require(price > 0, "Price must be greater than zero");
+        _tokenIds.increment();
+        uint256 newTokenId = _tokenIds.current();
+        _mint(msg.sender, newTokenId);
+        _setTokenURI(newTokenId, initialURI);
+        tokenEvolutionStages[newTokenId] = 1;
+        evolutionStageURIs[newTokenId][1] = initialURI;
+        tokenPrices[newTokenId] = price;
+        emit NFTListed(newTokenId, msg.sender, price);
+        return newTokenId;
     }
 
-    mapping(string => Property) public properties;
-    string[] public propertyIds;
-    uint256 public constant TOKENS_PER_PROPERTY = 1000;
-
-    event PropertyTokenized(string propertyId, string location, uint256 propertyValue);
-    event RentalIncomeDistributed(string propertyId, uint256 amount);
-    event PropertySold(string propertyId, uint256 saleAmount);
-    event TokensBurned(string propertyId, uint256 amount);
-    event FundsWithdrawn(address owner, uint256 amount);
-
-    constructor() ERC20("Real Estate Token", "RET") Ownable(msg.sender) {}
-
-    function tokenizeProperty(
-        string memory _propertyId,
-        string memory _location,
-        uint256 _propertyValue
-    ) external onlyOwner {
-        require(bytes(_propertyId).length > 0, "Property ID cannot be empty");
-        require(_propertyValue > 0, "Property value must be greater than 0");
-        require(!properties[_propertyId].isActive, "Property already tokenized");
-
-        properties[_propertyId] = Property({
-            propertyId: _propertyId,
-            location: _location,
-            propertyValue: _propertyValue,
-            rentalIncome: 0,
-            lastDistributionTimestamp: block.timestamp,
-            isActive: true
-        });
-
-        propertyIds.push(_propertyId);
-        _mint(address(this), TOKENS_PER_PROPERTY);
-
-        emit PropertyTokenized(_propertyId, _location, _propertyValue);
-    }
-
-    function distributeRentalIncome(string memory _propertyId, uint256 _amount) external payable onlyOwner {
-        require(properties[_propertyId].isActive, "Property not active");
-        require(msg.value == _amount, "Sent value must match the amount");
-
-        Property storage property = properties[_propertyId];
-        property.rentalIncome += _amount;
-        property.lastDistributionTimestamp = block.timestamp;
-
-        emit RentalIncomeDistributed(_propertyId, _amount);
-    }
-
-    function purchaseTokens(string memory _propertyId, uint256 _tokenAmount) external payable {
-        require(properties[_propertyId].isActive, "Property not active");
-        require(_tokenAmount > 0, "Token amount must be greater than 0");
-
-        Property storage property = properties[_propertyId];
-        uint256 tokenPrice = property.propertyValue / TOKENS_PER_PROPERTY;
-        uint256 totalPrice = tokenPrice * _tokenAmount;
-
-        require(msg.value >= totalPrice, "Insufficient funds sent");
-
-        _transfer(address(this), msg.sender, _tokenAmount);
-
-        if (msg.value > totalPrice) {
-            (bool success, ) = payable(msg.sender).call{value: msg.value - totalPrice}("");
-            require(success, "Refund failed");
+    function batchCreateAndListNFTs(string[] memory initialURIs, uint256[] memory prices) external {
+        require(initialURIs.length == prices.length, "Mismatched inputs");
+        for (uint256 i = 0; i < initialURIs.length; i++) {
+            require(prices[i] > 0, "Price must be > 0");
+            _tokenIds.increment();
+            uint256 newTokenId = _tokenIds.current();
+            _mint(msg.sender, newTokenId);
+            _setTokenURI(newTokenId, initialURIs[i]);
+            tokenEvolutionStages[newTokenId] = 1;
+            evolutionStageURIs[newTokenId][1] = initialURIs[i];
+            tokenPrices[newTokenId] = prices[i];
+            emit NFTListed(newTokenId, msg.sender, prices[i]);
         }
     }
 
+    function purchaseNFT(uint256 tokenId) external payable nonReentrant {
+        address seller = ownerOf(tokenId);
+        require(seller != msg.sender, "Cannot buy your own NFT");
+        uint256 price = tokenPrices[tokenId];
+        require(price > 0, "NFT not for sale");
+        require(msg.value >= price, "Insufficient funds");
+        delete tokenPrices[tokenId];
+        _transfer(seller, msg.sender, tokenId);
+        payable(seller).transfer(price);
+        if (msg.value > price) {
+            payable(msg.sender).transfer(msg.value - price);
+        }
+        emit NFTPurchased(tokenId, seller, msg.sender, price);
+    }
+
+    function delistNFT(uint256 tokenId) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(tokenPrices[tokenId] > 0, "NFT not listed");
+        delete tokenPrices[tokenId];
+        emit NFTDelisted(tokenId, msg.sender);
+    }
+
+    function updateListingPrice(uint256 tokenId, uint256 newPrice) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(newPrice > 0, "Price must be greater than zero");
+        tokenPrices[tokenId] = newPrice;
+        emit NFTListed(tokenId, msg.sender, newPrice);
+    }
+
+    function evolveNFT(uint256 tokenId, string memory newStageURI) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        uint256 newStage = tokenEvolutionStages[tokenId] + 1;
+        tokenEvolutionStages[tokenId] = newStage;
+        evolutionStageURIs[tokenId][newStage] = newStageURI;
+        _setTokenURI(tokenId, newStageURI);
+        emit NFTEvolved(tokenId, newStage);
+    }
+
+    function getCurrentEvolutionStage(uint256 tokenId) external view returns (uint256) {
+        require(_exists(tokenId), "NFT does not exist");
+        return tokenEvolutionStages[tokenId];
+    }
+
+    function getEvolutionURI(uint256 tokenId, uint256 stage) external view returns (string memory) {
+        require(_exists(tokenId), "NFT does not exist");
+        string memory uri = evolutionStageURIs[tokenId][stage];
+        require(bytes(uri).length > 0, "URI for stage not found");
+        return uri;
+    }
+
+    function getListingPrice(uint256 tokenId) external view returns (uint256) {
+        return tokenPrices[tokenId];
+    }
+
+    function withdrawFunds() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "No funds to withdraw");
+        payable(owner()).transfer(balance);
+    }
+
+    // 🔥 New Functions Added Below 🔥
+
     /**
-     * @dev Sell and remove a tokenized property
-     * Burns all its tokens and disables it
+     * @dev Relist a previously delisted NFT
      */
-    function sellProperty(string memory _propertyId, uint256 saleAmount) external onlyOwner {
-        require(properties[_propertyId].isActive, "Property not active");
+    function relistNFT(uint256 tokenId, uint256 price) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        require(price > 0, "Price must be greater than 0");
+        tokenPrices[tokenId] = price;
+        emit NFTRelisted(tokenId, price);
+    }
 
-        properties[_propertyId].isActive = false;
+    /**
+     * @dev Burn an NFT (permanently destroy)
+     */
+    function burnNFT(uint256 tokenId) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        _burn(tokenId);
+        delete tokenPrices[tokenId];
+        delete tokenEvolutionStages[tokenId];
+        emit NFTBurned(tokenId, msg.sender);
+    }
 
-        // Burn tokens held by the contract for that property
-        uint256 contractBalance = balanceOf(address(this));
-        if (contractBalance > 0) {
-            _burn(address(this), contractBalance);
-            emit TokensBurned(_propertyId, contractBalance);
+    /**
+     * @dev Returns all NFTs owned by a user
+     */
+    function getOwnedNFTs(address user) external view returns (uint256[] memory) {
+        uint256 total = _tokenIds.current();
+        uint256 count;
+        for (uint256 i = 1; i <= total; i++) {
+            if (_exists(i) && ownerOf(i) == user) {
+                count++;
+            }
         }
 
-        emit PropertySold(_propertyId, saleAmount);
+        uint256[] memory result = new uint256[](count);
+        uint256 idx = 0;
+        for (uint256 i = 1; i <= total; i++) {
+            if (_exists(i) && ownerOf(i) == user) {
+                result[idx++] = i;
+            }
+        }
+
+        return result;
     }
 
     /**
-     * @dev Allow owner to withdraw ETH from contract
+     * @dev Returns all currently listed NFTs and their prices
      */
-    function withdrawFunds(uint256 _amount) external onlyOwner {
-        require(address(this).balance >= _amount, "Not enough balance");
-        (bool success, ) = payable(owner()).call{value: _amount}("");
-        require(success, "Withdrawal failed");
-        emit FundsWithdrawn(owner(), _amount);
-    }
+    function getAllListedNFTs() external view returns (uint256[] memory, uint256[] memory) {
+        uint256 total = _tokenIds.current();
+        uint256 count;
+        for (uint256 i = 1; i <= total; i++) {
+            if (tokenPrices[i] > 0 && _exists(i)) {
+                count++;
+            }
+        }
 
-    /**
-     * @dev Get token price for a property
-     */
-    function getTokenPrice(string memory _propertyId) external view returns (uint256) {
-        require(properties[_propertyId].isActive, "Property not active");
-        return properties[_propertyId].propertyValue / TOKENS_PER_PROPERTY;
-    }
+        uint256[] memory ids = new uint256[](count);
+        uint256[] memory prices = new uint256[](count);
+        uint256 idx = 0;
+        for (uint256 i = 1; i <= total; i++) {
+            if (tokenPrices[i] > 0 && _exists(i)) {
+                ids[idx] = i;
+                prices[idx] = tokenPrices[i];
+                idx++;
+            }
+        }
 
-    /**
-     * @dev Get all property IDs
-     */
-    function getAllPropertyIds() external view returns (string[] memory) {
-        return propertyIds;
+        return (ids, prices);
     }
-
-    // Fallback and receive
-    receive() external payable {}
-    fallback() external payable {}
 }
