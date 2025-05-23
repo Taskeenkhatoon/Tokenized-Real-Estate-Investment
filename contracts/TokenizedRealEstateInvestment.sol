@@ -38,7 +38,7 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
         tokenPrices[newTokenId] = price;
         emit NFTListed(newTokenId, msg.sender, price);
         return newTokenId;
-    }
+    
 
     function batchCreateAndListNFTs(string[] memory initialURIs, uint256[] memory prices) external {
         require(initialURIs.length == prices.length, "Mismatched inputs");
@@ -72,7 +72,7 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
 
     function delistNFT(uint256 tokenId) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
-        require(tokenPrices[tokenId] > 0, "NFT not listed");
+        require(tokenPrices[tkenId] > 0, "NFT not listed");
         delete tokenPrices[tokenId];
         emit NFTDelisted(tokenId, msg.sender);
     }
