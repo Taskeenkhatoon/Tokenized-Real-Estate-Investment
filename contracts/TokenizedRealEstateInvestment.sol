@@ -2,7 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-;
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
 
 /**
  * @title DynamicNFTMarketplace
@@ -11,10 +13,10 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
-    
-    mapping(uint256 => uint256) public tokenPrces;
+
+    mapping(uint256 => uint256) public tokenPrices;
     mapping(uint256 => uint256) public tokenEvolutionStages;
-    mapping(uint256 => mapping(uint256 => string)) publi\ evolutionStageURIs;
+    mapping(uint256 => mapping(uint256 => string)) public evolutionStageURIs;
 
     event NFTListed(uint256 indexed tokenId, address indexed seller, uint256 price);
     event NFTDelisted(uint256 indexed tokenId, address indexed owner);
@@ -27,28 +29,35 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
 
     function createAndListNFT(string memory initialURI, uint256 price) external returns (uint256) {
         require(price > 0, "Price must be greater than zero");
+
         _tokenIds.increment();
         uint256 newTokenId = _tokenIds.current();
+
         _mint(msg.sender, newTokenId);
         _setTokenURI(newTokenId, initialURI);
         tokenEvolutionStages[newTokenId] = 1;
         evolutionStageURIs[newTokenId][1] = initialURI;
         tokenPrices[newTokenId] = price;
+
         emit NFTListed(newTokenId, msg.sender, price);
         return newTokenId;
-    
+    }
 
     function batchCreateAndListNFTs(string[] memory initialURIs, uint256[] memory prices) external {
         require(initialURIs.length == prices.length, "Mismatched inputs");
+
         for (uint256 i = 0; i < initialURIs.length; i++) {
             require(prices[i] > 0, "Price must be > 0");
+
             _tokenIds.increment();
             uint256 newTokenId = _tokenIds.current();
+
             _mint(msg.sender, newTokenId);
             _setTokenURI(newTokenId, initialURIs[i]);
             tokenEvolutionStages[newTokenId] = 1;
             evolutionStageURIs[newTokenId][1] = initialURIs[i];
             tokenPrices[newTokenId] = prices[i];
+
             emit NFTListed(newTokenId, msg.sender, prices[i]);
         }
     }
@@ -56,21 +65,27 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
     function purchaseNFT(uint256 tokenId) external payable nonReentrant {
         address seller = ownerOf(tokenId);
         require(seller != msg.sender, "Cannot buy your own NFT");
+
         uint256 price = tokenPrices[tokenId];
         require(price > 0, "NFT not for sale");
         require(msg.value >= price, "Insufficient funds");
+
         delete tokenPrices[tokenId];
+
         _transfer(seller, msg.sender, tokenId);
         payable(seller).transfer(price);
+
         if (msg.value > price) {
             payable(msg.sender).transfer(msg.value - price);
         }
+
         emit NFTPurchased(tokenId, seller, msg.sender, price);
     }
 
     function delistNFT(uint256 tokenId) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
-        require(tokenPrices[tkenId] > 0, "NFT not listed");
+        require(tokenPrices[tokenId] > 0, "NFT not listed");
+
         delete tokenPrices[tokenId];
         emit NFTDelisted(tokenId, msg.sender);
     }
@@ -78,16 +93,19 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
     function updateListingPrice(uint256 tokenId, uint256 newPrice) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
         require(newPrice > 0, "Price must be greater than zero");
+
         tokenPrices[tokenId] = newPrice;
         emit NFTListed(tokenId, msg.sender, newPrice);
     }
 
     function evolveNFT(uint256 tokenId, string memory newStageURI) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
+
         uint256 newStage = tokenEvolutionStages[tokenId] + 1;
         tokenEvolutionStages[tokenId] = newStage;
         evolutionStageURIs[tokenId][newStage] = newStageURI;
         _setTokenURI(tokenId, newStageURI);
+
         emit NFTEvolved(tokenId, newStage);
     }
 
@@ -102,18 +120,7 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
         require(bytes(uri).length > 0, "URI for stage not found");
         return uri;
     }
- function batchCreateAndListNFTs(string[] memory initialURIs, uint256[] memory prices) external {
-        require(initialURIs.length == prices.length, "Mismatched inputs");
-        for (uint256 i = 0; i < initialURIs.length; i++) {
-            require(prices[i] > 0, "Price must be > 0");
-            _tokenIds.increment();
-            uint256 newTokenId = _tokenIds.current();
-            _mint(msg.sender, newTokenId);
-            _setTokenURI(newTokenId, initialURIs[i]);
-            tokenEvolutionStages[newTokenId] = 1;
-            evolutionStageURIs[newTokenId][1] = initialURIs[i];
-            tokenPrices[newTokenId] = prices[i];
-            emit NFTListed(newTokenId, msg.sender, prices[i]);
+
     function getListingPrice(uint256 tokenId) external view returns (uint256) {
         return tokenPrices[tokenId];
     }
@@ -124,35 +131,28 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
         payable(owner()).transfer(balance);
     }
 
-    // 🔥 New Functions Added Below 🔥
-
-    /**
-     * @dev Relist a previously delisted NFT
-     */
     function relistNFT(uint256 tokenId, uint256 price) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
         require(price > 0, "Price must be greater than 0");
+
         tokenPrices[tokenId] = price;
         emit NFTRelisted(tokenId, price);
     }
 
-    /**
-     * @dev Burn an NFT (permanently destroy)
-     */
     function burnNFT(uint256 tokenId) external {
         require(ownerOf(tokenId) == msg.sender, "Not the owner");
+
         _burn(tokenId);
         delete tokenPrices[tokenId];
         delete tokenEvolutionStages[tokenId];
+
         emit NFTBurned(tokenId, msg.sender);
     }
 
-    /**
-     * @dev Returns all NFTs owned by a user
-     */
     function getOwnedNFTs(address user) external view returns (uint256[] memory) {
         uint256 total = _tokenIds.current();
         uint256 count;
+
         for (uint256 i = 1; i <= total; i++) {
             if (_exists(i) && ownerOf(i) == user) {
                 count++;
@@ -161,6 +161,7 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
 
         uint256[] memory result = new uint256[](count);
         uint256 idx = 0;
+
         for (uint256 i = 1; i <= total; i++) {
             if (_exists(i) && ownerOf(i) == user) {
                 result[idx++] = i;
@@ -170,12 +171,10 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
         return result;
     }
 
-    /**
-     * @dev Returns all currently listed NFTs and their prices
-     */
     function getAllListedNFTs() external view returns (uint256[] memory, uint256[] memory) {
         uint256 total = _tokenIds.current();
         uint256 count;
+
         for (uint256 i = 1; i <= total; i++) {
             if (tokenPrices[i] > 0 && _exists(i)) {
                 count++;
@@ -185,9 +184,10 @@ contract DynamicNFTMarketplace is ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256[] memory ids = new uint256[](count);
         uint256[] memory prices = new uint256[](count);
         uint256 idx = 0;
+
         for (uint256 i = 1; i <= total; i++) {
             if (tokenPrices[i] > 0 && _exists(i)) {
-                
+                ids[idx] = i;
                 prices[idx] = tokenPrices[i];
                 idx++;
             }
