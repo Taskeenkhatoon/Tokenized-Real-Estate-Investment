@@ -13,10 +13,6 @@ contract DynamicNFTMarketplace is ERC721URIStorage,= Ownable, ReentrancyGuard {
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
 
-    mapping(uint256 => uint256) public tokenPrices;
-    mapping(uint256 => uint256) public tokenEvolutionStages;
-    mapping(uint256 => mapping(uint256 => string)) public evolutionStageURIs;
-
     event NFTListed(uint256 indexed tokenId, address indexed seller, uint256 price);
     event NFTDelisted(uint256 indexed tokenId, address indexed owner);
     event NFTPurchased(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price);
