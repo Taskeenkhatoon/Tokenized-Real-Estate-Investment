@@ -117,14 +117,6 @@ contract DynamicNFTMarketplace is ERC721URIStorage,= Ownable, ReentrancyGuard {
         require(_exists(tokenId), "NFT does not exist");
         return tokenEvolutionStages[tokenId];
     }
-
-    function getEvolutionURI(uint256 tokenId, uint256 stage) external view returns (string memory) {
-        require(_exists(tokenId), "NFT does not exist");
-        string memory uri = evolutionStageURIs[tokenId][stage];
-        require(bytes(uri).length > 0, "URI for stage not found");
-        return uri;
-    }
-
     function getListingPrice(uint256 tokenId) external view returns (uint256) {
         return tokenPrices[tokenId];
     }
