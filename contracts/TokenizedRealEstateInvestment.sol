@@ -61,15 +61,6 @@ contract DynamicNFTMarketplace is ERC721URIStorage,= Ownable, ReentrancyGuard {
             tokenEvolutionStages[newTokenId] = 1;
             evolutionStageURIs[newTokenId][1] = initialURIs[i];
             tokenPrices[newTokenId] = prices[i];
-
-            emit NFTListed(newTokenId, msg.sender, prices[i]);
-        }
-    }
-
-    function purchaseNFT(uint256 tokenId) external payable nonReentrant {
-        address seller = ownerOf(tokenId);
-        require(seller != msg.sender, "Cannot buy your own NFT");
-
         uint256 price = tokenPrices[tokenId];
         require(price > 0, "NFT not for sale");
         require(msg.value >= price, "Insufficient funds");
