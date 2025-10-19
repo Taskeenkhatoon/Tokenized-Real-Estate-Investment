@@ -114,3 +114,6 @@ contract DynamicNFTMarketplace is ERC721URIStorage, IERC2981, Ownable, Reentranc
     // Utility and admin functions (same as before): delistNFT, relistNFT, withdrawFunds, getOwnedNFTs, etc...
     // You can paste in the rest of your existing functions below here unchanged (getOwnedNFTs, burnNFT, getAllListedNFTs, etc)
 }
+// START
+Updated on 2025-10-19
+// END
