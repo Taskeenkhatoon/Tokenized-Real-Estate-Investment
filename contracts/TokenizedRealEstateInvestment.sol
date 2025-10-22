@@ -115,5 +115,5 @@ contract DynamicNFTMarketplace is ERC721URIStorage, IERC2981, Ownable, Reentranc
     // You can paste in the rest of your existing functions below here unchanged (getOwnedNFTs, burnNFT, getAllListedNFTs, etc)
 }
 // START
-Updated on 2025-10-21
+Updated on 2025-10-22
 // END
