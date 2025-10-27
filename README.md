@@ -14,7 +14,7 @@ Our vision is to democratize access to real estate investments through blockchai
 
 This platform bridges the gap between traditional real estate and the digital economy, creating new opportunities for property owners and investors alike.
 
-## Key Features
+## Key 
 
 ### Property Tokenization
 - Convert real-world properties into blockchain-based tokens
