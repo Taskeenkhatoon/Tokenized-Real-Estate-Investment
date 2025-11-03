@@ -1,100 +1,105 @@
-out of 10000 (e.g., 500 = 5%)
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+/**
+ * @title TokenizedRealEstateInvestment
+ * @dev ERC20 token representing fractional ownership in real estate with dividend payouts
+ */
+contract TokenizedRealEstateInvestment is ERC20, Ownable {
+    // Total dividends distributed per token (scaled by magnitude)
+    uint256 public totalDividendsPerToken;
+
+    // Magnitude for dividend calculations to maintain precision
+    uint256 private constant magnitude = 2**128;
+
+    // Mapping of user addresses to their dividend corrections
+    mapping(address => int256) private dividendCorrections;
+
+    // Mapping of user addresses to dividends withdrawn
+    mapping(address => uint256) private withdrawnDividends;
+
+    // Event emitted when dividends are distributed
+    event DividendsDistributed(address indexed distributor, uint256 amount);
+
+    // Event emitted when a shareholder withdraws dividends
+    event DividendWithdrawn(address indexed shareholder, uint256 amount);
+
+    constructor(string memory name_, string memory symbol_, uint256 initialSupply) ERC20(name_, symbol_) {
+        _mint(msg.sender, initialSupply);
     }
 
-    mapping(uint256 => uint256) public tokenPrices;
-    mapping(uint256 => uint256) public tokenEvolutionStages;
-    mapping(uint256 => mapping(uint256 => string)) public evolutionStageURIs;
-    mapping(uint256 => uint256) public lastEvolved;
-    mapping(uint256 => Royalty) public royaltyInfo;
-
-    uint256 public evolutionCooldown = 1 days;
-
-    event NFTListed(uint256 indexed tokenId, address indexed seller, uint256 price);
-    event NFTDelisted(uint256 indexed tokenId, address indexed owner);
-    event NFTPurchased(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price);
-    event NFTEvolved(uint256 indexed tokenId, uint256 newStage);
-    event NFTRelisted(uint256 indexed tokenId, uint256 price);
-    event NFTBurned(uint256 indexed tokenId, address indexed owner);
-
-    constructor() ERC721("DynamicNFT", "DNFT") {}
-
-    function createAndListNFT(string memory uri, uint256 price, address royaltyReceiver, uint96 royaltyFee) external returns (uint256) {
-        require(price > 0, "Price must be > 0");
-        require(royaltyFee <= 1000, "Max 10% royalty");
-
-        _tokenIds.increment();
-        uint256 tokenId = _tokenIds.current();
-
-        _mint(msg.sender, tokenId);
-        _setTokenURI(tokenId, uri);
-
-        tokenEvolutionStages[tokenId] = 1;
-        evolutionStageURIs[tokenId][1] = uri;
-        tokenPrices[tokenId] = price;
-        lastEvolved[tokenId] = block.timestamp;
-
-        royaltyInfo[tokenId] = Royalty(royaltyReceiver, royaltyFee);
-
-        emit NFTListed(tokenId, msg.sender, price);
-        return tokenId;
+    /**
+     * @dev Allows owner to mint new tokens representing new contributions to the asset
+     * @param to Address to mint tokens to
+     * @param amount Number of tokens to mint
+     */
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+        // Adjust dividend corrections for minting
+        dividendCorrections[to] -= int256(totalDividendsPerToken * amount);
     }
 
-    function purchaseNFT(uint256 tokenId) external payable nonReentrant {
-        uint256 price = tokenPrices[tokenId];
-        require(price > 0, "NFT not for sale");
-        require(msg.value >= price, "Insufficient funds");
-
-        address seller = ownerOf(tokenId);
-
-        Royalty memory royalty = royaltyInfo[tokenId];
-        uint256 royaltyAmount = (price * royalty.feeNumerator) / 10000;
-
-        delete tokenPrices[tokenId];
-
-        _transfer(seller, msg.sender, tokenId);
-        payable(seller).transfer(price - royaltyAmount);
-
-        if (royaltyAmount > 0) {
-            payable(royalty.receiver).transfer(royaltyAmount);
-        }
-
-        if (msg.value > price) {
-            payable(msg.sender).transfer(msg.value - price);
-        }
-
-        emit NFTPurchased(tokenId, seller, msg.sender, price);
+    /**
+     * @dev Allows owner to burn tokens, e.g. selling asset share back
+     * @param from Address to burn tokens from
+     * @param amount Number of tokens to burn
+     */
+    function burn(address from, uint256 amount) external onlyOwner {
+        // Adjust dividend corrections for burning
+        dividendCorrections[from] += int256(totalDividendsPerToken * amount);
+        _burn(from, amount);
     }
 
-    function evolveNFT(uint256 tokenId, string memory newStageURI) external {
-        require(ownerOf(tokenId) == msg.sender, "Not the owner");
-        require(block.timestamp >= lastEvolved[tokenId] + evolutionCooldown, "Cooldown not passed");
+    /**
+     * @dev Distribute dividends in ETH to token holders proportionally
+     */
+    function distributeDividends() external payable onlyOwner {
+        require(totalSupply() > 0, "No tokens minted");
+        require(msg.value > 0, "No dividends sent");
 
-        uint256 newStage = tokenEvolutionStages[tokenId] + 1;
-        tokenEvolutionStages[tokenId] = newStage;
-        evolutionStageURIs[tokenId][newStage] = newStageURI;
-        lastEvolved[tokenId] = block.timestamp;
+        totalDividendsPerToken += (msg.value * magnitude) / totalSupply();
 
-        _setTokenURI(tokenId, newStageURI);
-        emit NFTEvolved(tokenId, newStage);
+        emit DividendsDistributed(msg.sender, msg.value);
     }
 
-    function updateEvolutionCooldown(uint256 newCooldown) external onlyOwner {
-        evolutionCooldown = newCooldown;
+    /**
+     * @dev Withdraw pending dividends for caller
+     */
+    function withdrawDividends() external {
+        uint256 _withdrawableDividend = withdrawableDividendOf(msg.sender);
+        require(_withdrawableDividend > 0, "No dividends to withdraw");
+
+        withdrawnDividends[msg.sender] += _withdrawableDividend;
+        payable(msg.sender).transfer(_withdrawableDividend);
+
+        emit DividendWithdrawn(msg.sender, _withdrawableDividend);
     }
 
-    function royaltyInfo(uint256 tokenId, uint256 salePrice) external view override returns (address, uint256) {
-        Royalty memory r = royaltyInfo[tokenId];
-        uint256 royaltyAmount = (salePrice * r.feeNumerator) / 10000;
-        return (r.receiver, royaltyAmount);
+    /**
+     * @dev Returns the dividend balance that can be withdrawn by an address
+     * @param shareholder Address to query
+     */
+    function withdrawableDividendOf(address shareholder) public view returns (uint256) {
+        return accumulativeDividendOf(shareholder) - withdrawnDividends[shareholder];
     }
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721, IERC165) returns (bool) {
-        return interfaceId == type(IERC2981).interfaceId || super.supportsInterface(interfaceId);
+    /**
+     * @dev Returns total dividends allocated to a shareholder
+     */
+    function accumulativeDividendOf(address shareholder) public view returns (uint256) {
+        return uint256(int256(totalDividendsPerToken * balanceOf(shareholder)) + dividendCorrections[shareholder]) / magnitude;
     }
 
-    You can paste in the rest of your existing functions below here unchanged (getOwnedNFTs, burnNFT, getAllListedNFTs, etc)
+    // Internal override to adjust dividend correction on transfers
+    function _transfer(address from, address to, uint256 amount) internal override {
+        super._transfer(from, to, amount);
+
+        int256 _magCorrection = int256(totalDividendsPerToken * amount);
+
+        dividendCorrections[from] += _magCorrection;
+        dividendCorrections[to] -= _magCorrection;
+    }
 }
-END
-// 
-update
-// 
